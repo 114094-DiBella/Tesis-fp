@@ -26,9 +26,4 @@ public class PaymentRequest {
 
     private String description;
 
-    // For card payments
-    private CardData cardData;
-
-    // For transfers
-    private TransferData transferData;
 }
