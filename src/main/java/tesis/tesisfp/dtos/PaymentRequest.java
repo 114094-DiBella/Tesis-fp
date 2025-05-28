@@ -26,4 +26,8 @@ public class PaymentRequest {
 
     private String description;
 
+    private String productName;
+
+    private Integer quantity;
+
 }

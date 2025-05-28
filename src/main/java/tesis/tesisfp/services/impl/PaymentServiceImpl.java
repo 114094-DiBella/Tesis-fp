@@ -37,7 +37,7 @@ public class PaymentServiceImpl implements PaymentService {
     @Value("${mercadopago.access.token}")
     private String accessToken;
 
-    @Value("${app.base.url:http://localhost:4200}")
+    @Value("${app.base.url}")
     private String baseUrl;
 
     @Autowired
@@ -57,60 +57,35 @@ public class PaymentServiceImpl implements PaymentService {
     public String createPaymentPreference(PaymentRequest request) throws MPException, MPApiException {
 
         MercadoPagoConfig.setAccessToken(accessToken);
-        PreferenceItemRequest itemRequest =
-                PreferenceItemRequest.builder()
-                        .id("1234")
-                        .title("Games")
-                        .description("PS5")
-                        .pictureUrl("http://picture.com/PS5")
-                        .categoryId("games")
-                        .quantity(2)
-                        .currencyId("BRL")
-                        .unitPrice(new BigDecimal("4000"))
-                        .build();
-        List<PreferenceItemRequest> items = new ArrayList<>();
-        items.add(itemRequest);
-        PreferenceRequest preferenceRequest = PreferenceRequest.builder()
-                .items(items).build();
-        PreferenceClient client = new PreferenceClient();
-        Preference preference = client.create(preferenceRequest);
-        return preference.getSandboxInitPoint();
-
-
-        /**MercadoPagoConfig.setAccessToken(accessToken);
 
         PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
-                .success(baseUrl + "/payment/success")
+                .success(baseUrl + "/watch?v=OVdbzIpbvBc")
                 .pending(baseUrl + "/payment/pending")
                 .failure(baseUrl + "/payment/failure")
                 .build();
 
-        PreferenceItemRequest itemRequest = PreferenceItemRequest.builder()
-                .id(request.getOrderCode())
-                .title("Pedido #" + request.getOrderCode())
-                .description(request.getDescription() != null ? request.getDescription() : "Compra en tienda")
-                .quantity(1)
-                .currencyId("ARS")
-                .unitPrice(request.getAmount())
-                .build();
+        PreferenceItemRequest itemRequest =
+                PreferenceItemRequest.builder()
+                        .id(request.getOrderCode())
+                        .title(request.getProductName())
+                        .description(request.getDescription())
+                        //.pictureUrl("http://picture.com/PS5")
+                        //.categoryId("games")
+                        .quantity(request.getQuantity())
+                        .currencyId("ARS")
+                        .unitPrice(request.getAmount())
+                        .build();
 
         List<PreferenceItemRequest> items = new ArrayList<>();
+
         items.add(itemRequest);
 
         PreferenceRequest preferenceRequest = PreferenceRequest.builder()
-                .items(items)
-                .backUrls(backUrls)
-                .externalReference(request.getOrderCode())
-                .statementDescriptor("TIENDA_ONLINE")
-                .build();
+                .items(items).backUrls(backUrls).build();
 
         PreferenceClient client = new PreferenceClient();
         Preference preference = client.create(preferenceRequest);
-
-        createPendingTransaction(request, preference.getId());
-
-        return preference.getSandboxInitPoint(); */
-
+        return preference.getSandboxInitPoint();
     }
 
     /**
