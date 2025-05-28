@@ -92,7 +92,7 @@ public class PaymentServiceImpl implements PaymentService {
         // Crear transacción pendiente
         createPendingTransaction(request, preference.getId());
 
-        return preference.getId();
+        return preference.getSandboxInitPoint();
     }
 
     /**
