@@ -6,19 +6,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 import tesis.tesisfp.dtos.PaymentRequest;
 import tesis.tesisfp.dtos.PaymentMethodDto;
 import tesis.tesisfp.dtos.TransactionResponse;
 import tesis.tesisfp.services.PaymentService;
 
 import jakarta.validation.Valid;
+
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.mysql.cj.conf.PropertyKey.logger;
 
 @RestController
 @RequestMapping("/api/payments")
 @CrossOrigin(origins = "http://localhost:4200")
 public class PaymentController {
+
 
     @Autowired
     private PaymentService paymentService;
@@ -109,20 +115,26 @@ public class PaymentController {
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(@RequestBody Map<String, Object> payload) {
         try {
-            // Procesar notificación de MP
             String type = (String) payload.get("type");
 
             if ("payment".equals(type)) {
                 Map<String, Object> data = (Map<String, Object>) payload.get("data");
                 String paymentId = (String) data.get("id");
 
-                // Actualizar estado del pago
-                paymentService.getPaymentStatus(paymentId);
+                // Actualizar estado del pago automáticamente
+                TransactionResponse transaction = paymentService.getPaymentStatus(paymentId);
+
+                // 🚨 AQUÍ FALTA: Avisar al microservicio de Ventas
+                if ("APPROVED".equals(transaction.getStatus().toString())) {
+                    notifyVentasService(transaction.getOrderCode(), "PAGADA");
+                } else if ("REJECTED".equals(transaction.getStatus().toString())) {
+                    notifyVentasService(transaction.getOrderCode(), "RECHAZADA");
+                }
             }
 
             return ResponseEntity.ok("OK");
         } catch (Exception e) {
-            return ResponseEntity.ok("OK"); // Siempre responder OK a MP
+            return ResponseEntity.ok("OK");
         }
     }
 
@@ -158,5 +170,19 @@ public class PaymentController {
     }
 
 
+    private void notifyVentasService(String facturaId, String status) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = "http://localhost:8081/api/facturas/" + facturaId + "/update-status";
+
+            Map<String, String> request = new HashMap<>();
+            request.put("status", status);
+
+            restTemplate.put(url, request);
+        } catch (Exception e) {
+            return;
+           // logger.error("Error notificando a servicio de ventas: " + e.getMessage());
+        }
+    }
 
 }
