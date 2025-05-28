@@ -156,4 +156,7 @@ public class PaymentController {
     public ResponseEntity<?> paymentPending() {
         return ResponseEntity.ok(Map.of("status", "pending", "message", "Pago pendiente"));
     }
+
+
+
 }

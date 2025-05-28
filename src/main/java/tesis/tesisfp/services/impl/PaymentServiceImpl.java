@@ -55,30 +55,48 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public String createPaymentPreference(PaymentRequest request) throws MPException, MPApiException {
-        // Configurar token de acceso
-        MercadoPagoConfig.setAccessToken(accessToken);
 
-        // URLs de retorno
+        MercadoPagoConfig.setAccessToken(accessToken);
+        PreferenceItemRequest itemRequest =
+                PreferenceItemRequest.builder()
+                        .id("1234")
+                        .title("Games")
+                        .description("PS5")
+                        .pictureUrl("http://picture.com/PS5")
+                        .categoryId("games")
+                        .quantity(2)
+                        .currencyId("BRL")
+                        .unitPrice(new BigDecimal("4000"))
+                        .build();
+        List<PreferenceItemRequest> items = new ArrayList<>();
+        items.add(itemRequest);
+        PreferenceRequest preferenceRequest = PreferenceRequest.builder()
+                .items(items).build();
+        PreferenceClient client = new PreferenceClient();
+        Preference preference = client.create(preferenceRequest);
+        return preference.getSandboxInitPoint();
+
+
+        /**MercadoPagoConfig.setAccessToken(accessToken);
+
         PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
                 .success(baseUrl + "/payment/success")
                 .pending(baseUrl + "/payment/pending")
                 .failure(baseUrl + "/payment/failure")
                 .build();
 
-        // Item del pedido
         PreferenceItemRequest itemRequest = PreferenceItemRequest.builder()
                 .id(request.getOrderCode())
                 .title("Pedido #" + request.getOrderCode())
                 .description(request.getDescription() != null ? request.getDescription() : "Compra en tienda")
                 .quantity(1)
-                .currencyId("ARS") // Peso argentino
+                .currencyId("ARS")
                 .unitPrice(request.getAmount())
                 .build();
 
         List<PreferenceItemRequest> items = new ArrayList<>();
         items.add(itemRequest);
 
-        // Crear preferencia
         PreferenceRequest preferenceRequest = PreferenceRequest.builder()
                 .items(items)
                 .backUrls(backUrls)
@@ -89,10 +107,10 @@ public class PaymentServiceImpl implements PaymentService {
         PreferenceClient client = new PreferenceClient();
         Preference preference = client.create(preferenceRequest);
 
-        // Crear transacción pendiente
         createPendingTransaction(request, preference.getId());
 
-        return preference.getSandboxInitPoint();
+        return preference.getSandboxInitPoint(); */
+
     }
 
     /**
