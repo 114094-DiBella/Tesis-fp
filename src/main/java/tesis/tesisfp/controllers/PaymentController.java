@@ -29,9 +29,6 @@ public class PaymentController {
     @Autowired
     private PaymentService paymentService;
 
-    /**
-     * Crea una preferencia de pago para Checkout Bricks
-     */
     @PostMapping("/create-preference")
     public ResponseEntity<?> createPaymentPreference(@Valid @RequestBody PaymentRequest request) {
         try {
