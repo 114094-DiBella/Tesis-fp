@@ -70,36 +70,53 @@ public class PaymentServiceImpl implements PaymentService {
 
         MercadoPagoConfig.setAccessToken(accessToken);
 
+        // URLs de retorno
         PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
-                .success(baseUrl + "/payment/sucess")
-                .pending(baseUrl + "/payment/pending")
-                .failure(baseUrl + "/payment/failure")
+                .success(baseUrl + "/api/payments/success")
+                .pending(baseUrl + "/api/payments/pending")
+                .failure(baseUrl + "/api/payments/failure")
                 .build();
 
-        PreferenceItemRequest itemRequest =
-                PreferenceItemRequest.builder()
-                        .id(request.getOrderCode())
-                        .title(request.getProductName())
-                        .description(request.getDescription())
-                        //.pictureUrl("http://picture.com/PS5")
-                        //.categoryId("games")
-                        .quantity(request.getQuantity())
-                        .currencyId("ARS")
-                        .unitPrice(request.getAmount())
-                        .build();
+        // Item de la preferencia
+        PreferenceItemRequest itemRequest = PreferenceItemRequest.builder()
+                .id(request.getOrderCode())
+                .title(request.getProductName() != null ? request.getProductName() : "Producto")
+                .description(request.getDescription() != null ? request.getDescription() : "Pago de orden")
+                .quantity(request.getQuantity() != null ? request.getQuantity() : 1)
+                .currencyId("ARS")
+                .unitPrice(request.getAmount())
+                .build();
 
         List<PreferenceItemRequest> items = new ArrayList<>();
-
         items.add(itemRequest);
 
+        // Configuración de la preferencia - AQUÍ ESTÁ LA CLAVE
         PreferenceRequest preferenceRequest = PreferenceRequest.builder()
-                .items(items).backUrls(backUrls).build();
+                .items(items)
+                .backUrls(backUrls)
+                .autoReturn("approved") // Opcional: redirecciona automáticamente si es aprobado
+                .externalReference(request.getOrderCode()) // MUY IMPORTANTE
+                .notificationUrl(baseUrl + "/api/payments/webhook") // ESTO ES LO QUE TE FALTABA
+                .statementDescriptor("TU_TIENDA") // Aparece en el resumen de tarjeta
+                .expires(true)
+                .build();
 
+        // Crear transacción pendiente ANTES de crear la preferencia
+        TransactionEntity transaction = createPendingTransaction(request, null);
+
+        // Crear preferencia
         PreferenceClient client = new PreferenceClient();
         Preference preference = client.create(preferenceRequest);
+
+        // Actualizar transacción con el ID de preferencia
+        transaction.setReferenceNumber(preference.getId());
+        transactionRepository.save(transaction);
+
+        logger.info("Preferencia creada - ID: {}, Webhook URL: {}",
+                preference.getId(), baseUrl + "/api/payments/webhook");
+
         return preference.getSandboxInitPoint();
     }
-
     /**
      * Procesa un pago usando la información del brick
      */
