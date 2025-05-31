@@ -81,6 +81,11 @@
             <version>2.1.7</version>
         </dependency>
 
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.15</version>
+        </dependency>
 
         <!--    Lombok    -->
         <dependency>
@@ -131,28 +136,6 @@
             <artifactId>mockito-junit-jupiter</artifactId>
             <version>5.5.0</version>
             <scope>test</scope>
-        </dependency>
-
-        <!-- Redis -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>redis.clients</groupId>
-            <artifactId>jedis</artifactId>
-        </dependency>
-
-        <!-- RabbitMQ -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-amqp</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.amqp</groupId>
-            <artifactId>spring-rabbit-test</artifactId>
         </dependency>
 
         <!--        Envers-->

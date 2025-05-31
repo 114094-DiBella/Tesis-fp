@@ -11,10 +11,13 @@ import com.mercadopago.exceptions.MPException;
 import com.mercadopago.resources.preference.Preference;
 import com.mercadopago.resources.payment.Payment;
 import org.modelmapper.ModelMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tesis.tesisfp.controllers.PaymentController;
 import tesis.tesisfp.dtos.PaymentRequest;
 import tesis.tesisfp.dtos.PaymentMethodDto;
 import tesis.tesisfp.dtos.TransactionResponse;
@@ -29,7 +32,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
+
+import static com.mysql.cj.conf.PropertyKey.logger;
 
 @Service
 public class PaymentServiceImpl implements PaymentService {
@@ -40,6 +46,10 @@ public class PaymentServiceImpl implements PaymentService {
     @Value("${app.base.url}")
     private String baseUrl;
 
+    @Value("${mercadopago.webhook.secret}")
+    private String webhookSecret;
+
+
     @Autowired
     private PaymentJpaRepository paymentMethodRepository;
 
@@ -48,6 +58,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Autowired
     private ModelMapper modelMapper;
+
+    private static final Logger logger = LoggerFactory.getLogger(PaymentServiceImpl.class);
 
     /**
      * Crea una preferencia de pago para Checkout Bricks
@@ -59,7 +71,7 @@ public class PaymentServiceImpl implements PaymentService {
         MercadoPagoConfig.setAccessToken(accessToken);
 
         PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
-                .success(baseUrl + "/watch?v=OVdbzIpbvBc")
+                .success(baseUrl + "/payment/sucess")
                 .pending(baseUrl + "/payment/pending")
                 .failure(baseUrl + "/payment/failure")
                 .build();
@@ -129,20 +141,210 @@ public class PaymentServiceImpl implements PaymentService {
      */
     @Override
     public TransactionResponse getPaymentStatus(String paymentId) throws MPException, MPApiException {
+        logger.info("Consultando estado del pago: {}", paymentId);
+
+        // Validación inicial
+        if (paymentId == null || paymentId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Payment ID no puede estar vacío");
+        }
+
         MercadoPagoConfig.setAccessToken(accessToken);
 
-        PaymentClient client = new PaymentClient();
-        Payment payment = client.get(Long.valueOf(paymentId));
+        try {
+            // Validar que el paymentId sea numérico
+            Long paymentIdLong;
+            try {
+                paymentIdLong = Long.valueOf(paymentId);
+            } catch (NumberFormatException e) {
+                logger.error("Payment ID inválido (no numérico): {}", paymentId);
+                throw new IllegalArgumentException("Payment ID debe ser numérico: " + paymentId);
+            }
 
-        // Buscar transacción en base de datos
-        TransactionEntity transaction = transactionRepository
-                .findByReferenceNumber(paymentId)
-                .orElseThrow(() -> new RuntimeException("Transacción no encontrada"));
+            // Consultar el pago en MercadoPago
+            PaymentClient client = new PaymentClient();
+            Payment payment = client.get(paymentIdLong);
 
-        // Actualizar estado según respuesta de MP
-        updateTransactionFromPayment(transaction, payment);
+            if (payment == null) {
+                logger.error("Pago no encontrado en MercadoPago: {}", paymentId);
+                throw new RuntimeException("Pago no encontrado en MercadoPago: " + paymentId);
+            }
 
-        return convertToResponse(transaction);
+            logger.info("Pago consultado exitosamente - ID: {}, Estado: {}, External Reference: {}",
+                    payment.getId(), payment.getStatus(), payment.getExternalReference());
+
+            // Buscar transacción en base de datos
+            // Primero intentar por reference number, luego por order code
+            TransactionEntity transaction = findTransactionByPayment(payment, paymentId);
+
+            if (transaction == null) {
+                logger.warn("Transacción no encontrada en BD para payment ID: {}", paymentId);
+                // Crear una nueva transacción si no existe
+                transaction = createTransactionFromPayment(payment, paymentId);
+            }
+
+            // Actualizar estado según respuesta de MP
+            updateTransactionFromPayment(transaction, payment);
+
+            return convertToResponse(transaction);
+
+        } catch (MPApiException e) {
+            logger.error("Error de API de MercadoPago consultando pago {}: Status: {}, Message: {}",
+                    paymentId, e.getStatusCode(), e.getMessage());
+
+            // Si es error 404, el pago no existe
+            if (e.getStatusCode() == 404) {
+                markTransactionAsRejected(paymentId, "Pago no encontrado en MercadoPago");
+                throw new RuntimeException("Pago no encontrado: " + paymentId);
+            }
+
+            // Para otros errores, marcar como rechazado
+            markTransactionAsRejected(paymentId, "Error API MP: " + e.getMessage());
+            throw e;
+
+        } catch (MPException e) {
+            logger.error("Error de MercadoPago consultando pago {}: {}", paymentId, e.getMessage());
+            markTransactionAsRejected(paymentId, "Error MP: " + e.getMessage());
+            throw e;
+
+        } catch (Exception e) {
+            logger.error("Error inesperado consultando pago {}: {}", paymentId, e.getMessage(), e);
+            markTransactionAsRejected(paymentId, "Error inesperado: " + e.getMessage());
+            throw new RuntimeException("Error consultando estado del pago: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Busca la transacción en la base de datos usando diferentes criterios
+     */
+    private TransactionEntity findTransactionByPayment(Payment payment, String paymentId) {
+        // Intentar por reference number
+        Optional<TransactionEntity> transaction = transactionRepository.findByReferenceNumber(paymentId);
+        if (transaction.isPresent()) {
+            return transaction.get();
+        }
+
+        // Intentar por external reference (order code)
+        if (payment.getExternalReference() != null) {
+            transaction = transactionRepository.findFirstByOrderCodeOrderByCreatedAtDesc(payment.getExternalReference());
+            if (transaction.isPresent()) {
+                return transaction.get();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Crea una nueva transacción a partir de los datos del pago de MP
+     */
+    private TransactionEntity createTransactionFromPayment(Payment payment, String paymentId) {
+        logger.info("Creando nueva transacción para payment ID: {}", paymentId);
+
+        TransactionEntity transaction = new TransactionEntity();
+        transaction.setOrderCode(payment.getExternalReference() != null ?
+                payment.getExternalReference() : "ORDER-" + paymentId);
+        transaction.setPaymentMethodId(payment.getPaymentMethodId());
+        transaction.setAmount(payment.getTransactionAmount());
+        transaction.setReferenceNumber(paymentId);
+        transaction.setDescription("Pago procesado via webhook - " + paymentId);
+        transaction.setCreatedAt(LocalDateTime.now());
+
+        // Establecer estado inicial basado en el estado del pago
+        updateTransactionStatusFromPayment(transaction, payment);
+
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * Actualiza el estado de la transacción basado en el estado del pago de MP
+     */
+    private void updateTransactionStatusFromPayment(TransactionEntity transaction, Payment payment) {
+        String mpStatus = payment.getStatus();
+
+        switch (mpStatus) {
+            case "approved":
+                transaction.setStatus(TransactionStatus.APPROVED);
+                transaction.setProcessedAt(LocalDateTime.now());
+                break;
+            case "pending":
+                transaction.setStatus(TransactionStatus.PENDING);
+                break;
+            case "in_process":
+                transaction.setStatus(TransactionStatus.PROCESSING);
+                break;
+            case "rejected":
+                transaction.setStatus(TransactionStatus.REJECTED);
+                transaction.setRejectionReason(payment.getStatusDetail());
+                transaction.setProcessedAt(LocalDateTime.now());
+                break;
+            case "cancelled":
+                transaction.setStatus(TransactionStatus.CANCELLED);
+                transaction.setProcessedAt(LocalDateTime.now());
+                break;
+            case "refunded":
+                transaction.setStatus(TransactionStatus.REFUNDED);
+                transaction.setProcessedAt(LocalDateTime.now());
+                break;
+            default:
+                logger.warn("Estado de pago no reconocido: {}", mpStatus);
+                transaction.setStatus(TransactionStatus.PROCESSING);
+        }
+    }
+
+    /**
+     * Actualiza la transacción con los datos del pago de MP (método existente mejorado)
+     */
+    private void updateTransactionFromPayment(TransactionEntity transaction, Payment payment) {
+        // Actualizar estado
+        updateTransactionStatusFromPayment(transaction, payment);
+
+        // Actualizar información de tarjeta si existe
+        if (payment.getCard() != null) {
+            transaction.setMaskedCardNumber("**** **** **** " + payment.getCard().getLastFourDigits());
+            transaction.setCardType(payment.getPaymentMethodId());
+        }
+
+        // Actualizar monto si es diferente
+        if (payment.getTransactionAmount() != null &&
+                !payment.getTransactionAmount().equals(transaction.getAmount())) {
+            transaction.setAmount(payment.getTransactionAmount());
+        }
+
+        // Actualizar reference number si no está establecido
+        if (transaction.getReferenceNumber() == null) {
+            transaction.setReferenceNumber(payment.getId().toString());
+        }
+
+        transactionRepository.save(transaction);
+        logger.info("Transacción actualizada - ID: {}, Estado: {}",
+                transaction.getId(), transaction.getStatus());
+    }
+
+    /**
+     * Marca una transacción como rechazada (método mejorado)
+     */
+    private void markTransactionAsRejected(String paymentId, String reason) {
+        try {
+            // Buscar por reference number
+            Optional<TransactionEntity> transactionOpt = transactionRepository.findByReferenceNumber(paymentId);
+
+            if (transactionOpt.isPresent()) {
+                TransactionEntity transaction = transactionOpt.get();
+                transaction.setStatus(TransactionStatus.REJECTED);
+                transaction.setRejectionReason(reason);
+                transaction.setProcessedAt(LocalDateTime.now());
+                transactionRepository.save(transaction);
+
+                logger.info("Transacción marcada como rechazada - Payment ID: {}, Razón: {}",
+                        paymentId, reason);
+            } else {
+                logger.warn("No se encontró transacción para marcar como rechazada - Payment ID: {}",
+                        paymentId);
+            }
+        } catch (Exception e) {
+            logger.error("Error marcando transacción como rechazada - Payment ID: {}, Error: {}",
+                    paymentId, e.getMessage());
+        }
     }
 
     /**
@@ -195,7 +397,6 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private TransactionResponse processEffectivoPayment(TransactionEntity transaction, PaymentRequest request) {
-        // Para efectivo, aplicar descuento del 15%
         BigDecimal discountAmount = request.getAmount().multiply(new BigDecimal("0.15"));
         BigDecimal finalAmount = request.getAmount().subtract(discountAmount);
 
@@ -208,48 +409,10 @@ public class PaymentServiceImpl implements PaymentService {
         return convertToResponse(transaction);
     }
 
-    private void updateTransactionFromPayment(TransactionEntity transaction, Payment payment) {
-        switch (payment.getStatus()) {
-            case "approved":
-                transaction.setStatus(TransactionStatus.APPROVED);
-                break;
-            case "pending":
-                transaction.setStatus(TransactionStatus.PENDING);
-                break;
-            case "rejected":
-                transaction.setStatus(TransactionStatus.REJECTED);
-                transaction.setRejectionReason(payment.getStatusDetail());
-                break;
-            case "cancelled":
-                transaction.setStatus(TransactionStatus.CANCELLED);
-                break;
-            default:
-                transaction.setStatus(TransactionStatus.PROCESSING);
-        }
-
-        if (payment.getCard() != null) {
-            transaction.setMaskedCardNumber(payment.getCard().getLastFourDigits());
-            transaction.setCardType(payment.getPaymentMethodId());
-        }
-
-        transaction.setProcessedAt(LocalDateTime.now());
-        transactionRepository.save(transaction);
-    }
-
-    private void markTransactionAsRejected(String orderCode, String reason) {
-        transactionRepository.findFirstByOrderCodeOrderByCreatedAtDesc(orderCode)
-                .ifPresent(transaction -> {
-                    transaction.setStatus(TransactionStatus.REJECTED);
-                    transaction.setRejectionReason(reason);
-                    transaction.setProcessedAt(LocalDateTime.now());
-                    transactionRepository.save(transaction);
-                });
-    }
 
     private TransactionResponse convertToResponse(TransactionEntity transaction) {
         TransactionResponse response = modelMapper.map(transaction, TransactionResponse.class);
 
-        // Obtener nombre del método de pago
         if (transaction.getPaymentMethodId() != null) {
             paymentMethodRepository.findById(transaction.getPaymentMethodId())
                     .ifPresent(method -> response.setPaymentMethodName(method.getName()));
