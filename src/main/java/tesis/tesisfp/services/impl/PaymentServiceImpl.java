@@ -72,9 +72,9 @@ public class PaymentServiceImpl implements PaymentService {
 
         // URLs de retorno
         PreferenceBackUrlsRequest backUrls = PreferenceBackUrlsRequest.builder()
-                .success(baseUrl + "/api/payments/success")
-                .pending(baseUrl + "/api/payments/pending")
-                .failure(baseUrl + "/api/payments/failure")
+                .success("https://httpbin.org/status/200")   // ✅ URL pública de prueba
+                .pending("https://httpbin.org/status/200")    // ✅ URL pública de prueba
+                .failure("https://httpbin.org/status/200")    // ✅ URL pública de prueba
                 .build();
 
         // Item de la preferencia
@@ -96,7 +96,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .backUrls(backUrls)
                 .autoReturn("approved") // Opcional: redirecciona automáticamente si es aprobado
                 .externalReference(request.getOrderCode()) // MUY IMPORTANTE
-                .notificationUrl(baseUrl + "/api/payments/webhook") // ESTO ES LO QUE TE FALTABA
+                //.notificationUrl(baseUrl + "/api/payments/webhook") // ESTO ES LO QUE TE FALTABA
                 .statementDescriptor("TU_TIENDA") // Aparece en el resumen de tarjeta
                 .expires(true)
                 .build();
