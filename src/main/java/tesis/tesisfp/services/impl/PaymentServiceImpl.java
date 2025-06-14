@@ -96,7 +96,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .backUrls(backUrls)
                 .autoReturn("approved") // Opcional: redirecciona automáticamente si es aprobado
                 .externalReference(request.getOrderCode()) // MUY IMPORTANTE
-                //.notificationUrl(baseUrl + "/api/payments/webhook") // ESTO ES LO QUE TE FALTABA
+                .notificationUrl(baseUrl + "/api/payments/webhook") // ESTO ES LO QUE TE FALTABA
                 .statementDescriptor("TU_TIENDA") // Aparece en el resumen de tarjeta
                 .expires(true)
                 .build();

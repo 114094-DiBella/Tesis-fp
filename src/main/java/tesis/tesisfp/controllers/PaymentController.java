@@ -40,6 +40,9 @@ public class PaymentController {
     @Value("${mercadopago.webhook.secret:your-webhook-secret}")
     private String webhookSecret;
 
+    @Value("${sales.service.url:http://localhost:8081}")
+    private String salesServiceUrl;
+
     @Autowired
     private PaymentService paymentService;
 
@@ -275,7 +278,7 @@ public class PaymentController {
     private void notifyVentasService(String facturaId, String status) {
         try {
             RestTemplate restTemplate = new RestTemplate();
-            String url = "http://localhost:8081/api/facturas/" + facturaId + "/update-status";
+            String url = salesServiceUrl + "/api/facturas/" + facturaId + "/update-status";
 
             Map<String, String> request = new HashMap<>();
             request.put("status", status);
