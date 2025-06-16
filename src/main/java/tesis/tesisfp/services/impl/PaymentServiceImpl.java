@@ -1,10 +1,7 @@
 package tesis.tesisfp.services.impl;
 
 import com.mercadopago.MercadoPagoConfig;
-import com.mercadopago.client.preference.PreferenceBackUrlsRequest;
-import com.mercadopago.client.preference.PreferenceClient;
-import com.mercadopago.client.preference.PreferenceItemRequest;
-import com.mercadopago.client.preference.PreferenceRequest;
+import com.mercadopago.client.preference.*;
 import com.mercadopago.client.payment.PaymentClient;
 import com.mercadopago.exceptions.MPApiException;
 import com.mercadopago.exceptions.MPException;
@@ -60,6 +57,7 @@ public class PaymentServiceImpl implements PaymentService {
     private ModelMapper modelMapper;
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentServiceImpl.class);
+
 
     /**
      * Crea una preferencia de pago para Checkout Bricks
